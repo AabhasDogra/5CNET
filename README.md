@@ -23,5 +23,7 @@ Both models were trained on the preprocessed dataset. The primary evaluation met
 The web application consists of:
 - A FastAPI backend to serve the best performing model.
 - A Streamlit UI for users to upload images and view segmentation results.
+- 
+![ex1](https://github.com/user-attachments/assets/b3976c82-0ef1-490c-bd1b-0febbe901901)
 
 
