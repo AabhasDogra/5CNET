@@ -1,68 +1,83 @@
-# Import necessary libraries
-import os
-import numpy as np
-import cv2
-import zipfile
-import requests
-import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
-from tensorflow.keras import layers, models, callbacks
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
+def attention_unet(input_shape):
+    inputs = layers.Input(shape=input_shape)
 
-# Download the dataset
-dataset_url = 'https://dicom5c.blob.core.windows.net/public/Data.zip'
-response = requests.get(dataset_url)
-with open('Data.zip', 'wb') as f:
-    f.write(response.content)
+    # Encoding path
+    c1 = layers.Conv2D(32, (3, 3), padding='same')(inputs)
+    c1 = layers.BatchNormalization()(c1)
+    c1 = layers.Activation('relu')(c1)
+    c1 = layers.Conv2D(32, (3, 3), padding='same')(c1)
+    c1 = layers.BatchNormalization()(c1)
+    c1 = layers.Activation('relu')(c1)
+    p1 = layers.MaxPooling2D((2, 2))(c1)
 
-# Unzip the dataset
-with zipfile.ZipFile('Data.zip', 'r') as zip_ref:
-    zip_ref.extractall('Data')
+    c2 = layers.Conv2D(64, (3, 3), padding='same')(p1)
+    c2 = layers.BatchNormalization()(c2)
+    c2 = layers.Activation('relu')(c2)
+    c2 = layers.Conv2D(64, (3, 3), padding='same')(c2)
+    c2 = layers.BatchNormalization()(c2)
+    c2 = layers.Activation('relu')(c2)
+    p2 = layers.MaxPooling2D((2, 2))(c2)
 
-# Dataset paths
-images_path = 'Data/Data/TCGA_CS_4941_19960909/images/'
-masks_path = 'Data/Data/TCGA_CS_4941_19960909/masks/'
+    c3 = layers.Conv2D(128, (3, 3), padding='same')(p2)
+    c3 = layers.BatchNormalization()(c3)
+    c3 = layers.Activation('relu')(c3)
+    c3 = layers.Conv2D(128, (3, 3), padding='same')(c3)
+    c3 = layers.BatchNormalization()(c3)
+    c3 = layers.Activation('relu')(c3)
+    p3 = layers.MaxPooling2D((2, 2))(c3)
 
-# Load images and masks
-image_files = sorted([f for f in os.listdir(images_path) if f.endswith('.tif')])
-mask_files = sorted([f for f in os.listdir(masks_path) if f.endswith('.tif')])
+    c4 = layers.Conv2D(256, (3, 3), padding='same')(p3)
+    c4 = layers.BatchNormalization()(c4)
+    c4 = layers.Activation('relu')(c4)
+    c4 = layers.Conv2D(256, (3, 3), padding='same')(c4)
+    c4 = layers.BatchNormalization()(c4)
+    c4 = layers.Activation('relu')(c4)
 
-# Ensure images and masks are paired
-assert len(image_files) == len(mask_files), "Mismatch between images and masks"
+    # Bottleneck
+    c5 = layers.Conv2D(512, (3, 3), padding='same')(c4)
+    c5 = layers.BatchNormalization()(c5)
+    c5 = layers.Activation('relu')(c5)
+    c5 = layers.Conv2D(512, (3, 3), padding='same')(c5)
+    c5 = layers.BatchNormalization()(c5)
+    c5 = layers.Activation('relu')(c5)
 
-# Preprocessing: CLAHE
-def apply_clahe(image):
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    img_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    return clahe.apply(img_gray)
+    # Decoding path
+    u6 = layers.Conv2DTranspose(256, (2, 2), strides=(2, 2), padding='same')(c5)
+    u6 = layers.concatenate([u6, c4])
+    c6 = layers.Conv2D(256, (3, 3), padding='same')(u6)
+    c6 = layers.BatchNormalization()(c6)
+    c6 = layers.Activation('relu')(c6)
 
-# Load images and masks
-images = []
-masks = []
+    # Attention mechanism
+    attention = layers.Conv2D(256, (1, 1), activation='sigmoid')(c4)
+    attention = layers.multiply([c6, attention])
 
-for img_file, mask_file in zip(image_files, mask_files):
-    img_path = os.path.join(images_path, img_file)
-    mask_path = os.path.join(masks_path, mask_file)
-    
-    img = cv2.imread(img_path)
-    mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)  # Load mask as grayscale
-    
-    if img is not None and mask is not None:  # Check if both image and mask exist
-        img = apply_clahe(img)
-        images.append(img)
-        masks.append(mask)
+    u7 = layers.Conv2DTranspose(128, (2, 2), strides=(2, 2), padding='same')(attention)
+    u7 = layers.concatenate([u7, c3])
+    c7 = layers.Conv2D(128, (3, 3), padding='same')(u7)
+    c7 = layers.BatchNormalization()(c7)
+    c7 = layers.Activation('relu')(c7)
 
-# Convert to NumPy arrays
-images = np.array(images)
-masks = np.array(masks)
+    # Attention mechanism
+    attention = layers.Conv2D(128, (1, 1), activation='sigmoid')(c3)
+    attention = layers.multiply([c7, attention])
 
-# Normalize images and masks
-images = images / 255.0
-masks = masks / 255.0
+    u8 = layers.Conv2DTranspose(64, (2, 2), strides=(2, 2), padding='same')(attention)
+    u8 = layers.concatenate([u8, c2])
+    c8 = layers.Conv2D(64, (3, 3), padding='same')(u8)
+    c8 = layers.BatchNormalization()(c8)
+    c8 = layers.Activation('relu')(c8)
 
-# Split the dataset
-train_images, test_images, train_masks, test_masks = train_test_split(
-    images, masks, test_size=0.2, random_state=42
-)
+    # Attention mechanism
+    attention = layers.Conv2D(64, (1, 1), activation='sigmoid')(c2)
+    attention = layers.multiply([c8, attention])
 
-print(f"Training samples: {len(train_images)}, Testing samples: {len(test_images)}")
+    u9 = layers.Conv2DTranspose(32, (2, 2), strides=(2, 2), padding='same')(attention)
+    u9 = layers.concatenate([u9, c1])
+    c9 = layers.Conv2D(32, (3, 3), padding='same')(u9)
+    c9 = layers.BatchNormalization()(c9)
+    c9 = layers.Activation('relu')(c9)
+
+    outputs = layers.Conv2D(1, (1, 1), activation='sigmoid')(c9)
+    model = models.Model(inputs=[inputs], outputs=[outputs])
+    return model
